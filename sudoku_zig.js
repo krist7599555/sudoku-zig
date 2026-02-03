@@ -1,15 +1,15 @@
-var sudoku;
+var SudokuWasm;
 
 export async function init() {
-  sudoku ||= await loadSudokuZigWasm();
-  window.Sudoku = sudoku;
+  SudokuWasm ||= await loadSudokuZigWasm();
+  window.SudokuWasm = SudokuWasm;
 }
 
 export function solve(str) {
-  return sudoku.solve(str)
+  return SudokuWasm.solve(str)
 }
 export function generate_solved_puzzle(seed = Date.now()) {
-  return sudoku.generate_solved_puzzle(seed);
+  return SudokuWasm.generate_solved_puzzle(seed);
 }
 
 export function mount(selector) {
@@ -23,7 +23,6 @@ export function mount(selector) {
     </div>
   `
   const grid = document.getElementById("sudoku-grid");
-  setBoard('.2.1.67.3.3...7.9669.5..4..5..3.9.743.4.5.9....971.5.2...68.12.2.6....4575..32.8.')
 
   function render() {
     grid.innerHTML = app.dataset.sudoku
@@ -33,11 +32,35 @@ export function mount(selector) {
         const val = c.replace(".", "");
         return `
             <div
+              data-idx='${i}'
               data-box='${box}'
               class="size-10 p-2 text-center border border-slate-200 shadow-md ${[1,3,5,7].includes(box) ? 'bg-slate-300' : 'bg-slate-50'}"
             >${val}</div>`;
       })
       .join("");
+
+    for (const cell of grid.children) {
+      const idx = parseInt(cell.dataset.idx);
+      if (isNaN(idx)) continue;
+      cell.addEventListener("click", () => handleClickCell(idx))
+    }
+  } // end-render
+
+  function replaceAt(str, index, char) {
+    return str.slice(0, index) + char + str.slice(index + 1);
+  }
+  function handleClickCell(idx) {
+    let newVal = app.dataset.sudoku[idx]; // newVal = oldVal
+    if (newVal == '.') {
+      const num = parseInt(prompt("input number"))
+      if (!isNaN(num) && 0 < num && num <= 9) {
+        newVal = `${num}`;
+      }
+    } else {
+      newVal = '.';
+    }
+    setBoard(replaceAt(app.dataset.sudoku, idx, newVal));
+    render()
   }
 
   function setBoard(str) {
@@ -45,19 +68,25 @@ export function mount(selector) {
     render();
   }
 
-
   function random() {
-    setBoard(sudoku.generate_solved_puzzle().puzzle);
+    setBoard(SudokuWasm.generate_solved_puzzle().puzzle);
   }
 
   function solve() {
-    setBoard(sudoku.solve(app.dataset.sudoku));
+    let out;
+    try {
+      out = SudokuWasm.solve(app.dataset.sudoku)
+      setBoard(out);
+    } catch(err) {
+      alert("CAN NOT BE SOLVE")
+    }
   }
 
   document.getElementById('sudoku-random').addEventListener("click", random)
   document.getElementById('sudoku-solve').addEventListener("click", solve)
  
   random();
+
   return {
     random,
     solve,
