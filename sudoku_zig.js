@@ -13,85 +13,90 @@ export function generate_solved_puzzle(seed = Date.now()) {
 }
 
 export function mount(selector) {
-  const app = document.querySelector(selector)
+  const app = document.querySelector(selector);
+  if (!app) throw new Error("mount: selector not found");
+
+  const btn = `text-center cursor-pointer bg-slate-600 text-white rounded-md px-4 py-2 w-30 shadow`
   app.innerHTML = `
-    <div id="sudoku-grid" class="font-mono font-bold text-slate-700 grid grid-cols-9 grid-rows-9 w-fit gap-0.5 mx-auto mt-12"></div>
-    <div class="flex mx-auto justify-center gap-1.5 mt-6 font-mono">
-      <button id='sudoku-random' type="button" class="cursor-pointer bg-slate-600 text-white rounded-md px-4 py-2 w-30 shadow">random</button>
-      <button id='sudoku-solve' type="button" class="cursor-pointer bg-slate-600 text-white rounded-md px-4 py-2 w-30 shadow">solve</button>
-      <a href="https://github.com/krist7599555/sudoku-zig" class="text-center cursor-pointer bg-slate-600 text-white rounded-md px-4 py-2 w-30 shadow">github</a>
+    <div id="sudoku-grid"
+      class="font-mono font-bold text-slate-700 grid grid-cols-9 grid-rows-9 w-fit gap-0.5 mx-auto mt-12">
     </div>
-  `
-  const grid = document.getElementById("sudoku-grid");
 
-  function render() {
-    grid.innerHTML = app.dataset.sudoku
-      .split("")
-      .map((c, i) => {
-        const box = Math.floor(i / 27) * 3 + Math.floor((i % 9) / 3);
-        const val = c.replace(".", "");
-        return `
-            <div
-              data-idx='${i}'
-              data-box='${box}'
-              class="size-10 p-2 text-center border border-slate-200 shadow-md ${[1,3,5,7].includes(box) ? 'bg-slate-300' : 'bg-slate-50'}"
-            >${val}</div>`;
-      })
-      .join("");
+    <div class="flex mx-auto justify-center gap-1.5 mt-6 font-mono">
+      <button id='sudoku-random' type="button" class="${btn}">random</button>
+      <button id='sudoku-solve' type="button" class="${btn}">solve</button>
+      <a href="https://github.com/krist7599555/sudoku-zig" class="${btn}">github</a>
+    </div>
+  `;
 
-    for (const cell of grid.children) {
-      const idx = parseInt(cell.dataset.idx);
-      if (isNaN(idx)) continue;
-      cell.addEventListener("click", () => handleClickCell(idx))
-    }
-  } // end-render
+  const grid = app.querySelector("#sudoku-grid");
 
-  function replaceAt(str, index, char) {
-    return str.slice(0, index) + char + str.slice(index + 1);
-  }
-  function handleClickCell(idx) {
-    let newVal = app.dataset.sudoku[idx]; // newVal = oldVal
-    if (newVal == '.') {
-      const num = parseInt(prompt("input number"))
-      if (!isNaN(num) && 0 < num && num <= 9) {
-        newVal = `${num}`;
-      }
-    } else {
-      newVal = '.';
-    }
-    setBoard(replaceAt(app.dataset.sudoku, idx, newVal));
-    render()
-  }
-
-  function setBoard(str) {
+  const replaceAt = (s, i, c) => s.slice(0, i) + c + s.slice(i + 1);
+  const getBoard = () => app.dataset.sudoku;
+  const setBoard = (str) => {
     app.dataset.sudoku = str;
     render();
+  };
+  const setBoardAt = (i, c) => {
+    setBoard(replaceAt(getBoard(), i, c));
   }
 
-  function random() {
-    setBoard(SudokuWasm.generate_solved_puzzle().puzzle);
+  function render() {
+    const board = getBoard();
+    grid.innerHTML = board
+      .split("")
+      .map((c, i) => {
+        const boxIndex = (i) => Math.floor(i / 27) * 3 + Math.floor((i % 9) / 3);
+        const box = boxIndex(i);
+        const isDarkBox = [1, 3, 5, 7].includes(box);
+        return `
+          <div
+            data-idx="${i}"
+            class="size-10 p-2 text-center border border-slate-200 shadow-md
+              ${isDarkBox ? "bg-slate-300" : "bg-slate-50"}">
+            ${c === "." ? "" : c}
+          </div>
+        `;
+      })
+      .join("");
   }
 
-  function solve() {
-    let out;
-    try {
-      out = SudokuWasm.solve(app.dataset.sudoku)
-      setBoard(out);
-    } catch(err) {
-      alert("CAN NOT BE SOLVE")
+  function handleCellClick(idx) {
+    const cur = getBoard()[idx];
+    let next = undefined;
+    if (cur === ".") {
+      const n = Number(prompt("input number (1-9)"));
+      if (n >= 1 && n <= 9) next = String(n);
+      else return;
+    } else {
+      next = '.'
     }
+    setBoardAt(idx, next);
   }
 
-  document.getElementById('sudoku-random').addEventListener("click", random)
-  document.getElementById('sudoku-solve').addEventListener("click", solve)
- 
+  grid.addEventListener("click", (e) => {
+    const cell = e.target.closest("[data-idx]");
+    if (!cell) return;
+    handleCellClick(Number(cell.dataset.idx));
+  });
+
+  const random = () =>
+    setBoard(SudokuWasm.generate_solved_puzzle().puzzle);
+
+  const solve = () => {
+    try {
+      setBoard(SudokuWasm.solve(getBoard()));
+    } catch {
+      alert("CAN NOT BE SOLVE");
+    }
+  };
+
+  app.querySelector("#sudoku-random").onclick = random;
+  app.querySelector("#sudoku-solve").onclick = solve;
+
   random();
 
-  return {
-    random,
-    solve,
-    setBoard,
-  }
+  return { random, solve, setBoard };
 }
 
 async function loadSudokuZigWasm(url = "https://raw.githubusercontent.com/krist7599555/sudoku-zig/main/zig-out/bin/sudoku_zig.wasm") {
@@ -110,7 +115,7 @@ async function loadSudokuZigWasm(url = "https://raw.githubusercontent.com/krist7
     return {
       addr: res,
       len: size,
-      as_str() {
+      str() {
         return new TextDecoder().decode(mem.slice(res, this.addr + this.len));
       },
       write(s) {
@@ -131,7 +136,7 @@ async function loadSudokuZigWasm(url = "https://raw.githubusercontent.com/krist7
     const inp = molloc(81).write(str);
     const out = molloc(81);
     exitcode(wasm.abi_solve(inp.addr, out.addr));
-    const res = out.as_str();
+    const res = out.str();
     free_all_memory();
     return res;
   }
@@ -147,8 +152,8 @@ async function loadSudokuZigWasm(url = "https://raw.githubusercontent.com/krist7
       ),
     );
     const res = {
-      solved: out_solved.as_str(),
-      puzzle: out_puzzle.as_str(),
+      solved: out_solved.str(),
+      puzzle: out_puzzle.str(),
     };
     free_all_memory();
     return res;
