@@ -1,0 +1,27 @@
+# Zig build output
+zig-cache/
+.zig-cache/
+zig-out/
+
+# Executables
+*.exe
+*.out
+*.o
+*.obj
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Debug / profiling
+*.pdb
+*.dSYM/
+
+# Optional: test artifacts
+test-results/
