@@ -13,8 +13,8 @@ fn test_basic() !void {
     const rng = prng.random();
 
     const sodoks = [_]Sudoku{
-        Sudoku.generate_solved_puzzle(rng).puzzle,
-        Sudoku.generate_solved_puzzle(rng).puzzle,
+        Sudoku.generate_puzzle(rng).input,
+        Sudoku.generate_puzzle(rng).input,
         try Sudoku.from_string("7...2654..98.75.2...5.4.97198.6.275.....87.1934.5....26592..4...34.6..85..235.1.."),
         try Sudoku.from_string("000000009002004700100000080000302006003007500600005000090040001006700200800000060"),
         try Sudoku.from_string("300000700010009005004000020000502000000048001080960000200000040007000300090050008"),

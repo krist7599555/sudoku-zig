@@ -17,11 +17,37 @@ pub inline fn get_bitmask(val: u8) u16 {
     return if (val == 0) 0 else @as(u16, 1) << @intCast(val - 1);
 }
 
+const BitmaskIterator = struct {
+    mask: u16 = 0,
+    fn next(self: *@This()) ?u8 {
+        if (self.mask > 0) {
+            const out: u8 = @intCast(@ctz(self.mask));
+            self.mask &= self.mask - 1;
+            return out;
+        }
+        return null;
+    }
+};
+const Bitmask = struct {
+    mask: u16 = 0,
+    pub fn len(self: *const Bitmask) u8 {
+        return @popCount(self.mask);
+    }
+    pub fn has(self: *const Bitmask, val: u8) bool {
+        return (self.mask & (get_bitmask(val))) == get_bitmask(val);
+    }
+    pub fn iter(self: *const Bitmask) BitmaskIterator {
+        return BitmaskIterator{ .mask = self.mask };
+    }
+};
+
 pub const Sudoku = struct {
     table: [CELL_COUNT]u8,
     row_masks: [GRID_SIZE]u16,
     col_masks: [GRID_SIZE]u16,
     box_masks: [GRID_SIZE]u16,
+
+    // ## CONSTRUCTOR
 
     pub fn create() Sudoku {
         return .{
@@ -32,18 +58,15 @@ pub const Sudoku = struct {
         };
     }
 
-    pub fn generate_solved(rng: std.Random) Sudoku {
-        var self = Sudoku.create();
-        _ = self.inplace_random_fill(rng, 0);
-        return self;
+    pub fn generate_puzzle(rng: std.Random) struct { expect: Sudoku, input: Sudoku } {
+        var completed = Sudoku.create();
+        _ = completed.inplace_random_fill(rng, 0);
+        var pruned = completed;
+        _ = pruned.inplace_prune_cells(rng);
+        return .{ .expect = completed, .input = pruned };
     }
 
-    pub fn generate_solved_puzzle(rng: std.Random) struct { solved: Sudoku, puzzle: Sudoku } {
-        const solved = generate_solved(rng);
-        var puzzle = solved;
-        _ = puzzle.inplace_prune_cells(rng);
-        return .{ .solved = solved, .puzzle = puzzle };
-    }
+    // ## CODEC<string>
 
     pub fn from_string(str: []const u8) SudokuError!Sudoku {
         if (str.len != CELL_COUNT) return SudokuError.InvalidLength;
@@ -52,7 +75,7 @@ pub const Sudoku = struct {
             switch (c) {
                 '1'...'9' => {
                     const val = c - '0';
-                    if (!self.is_move_valid(i, val)) return SudokuError.DuplicatedElement;
+                    if (!self.get_possible_moves(i).has(val)) return SudokuError.DuplicatedElement;
                     self.set_cell(i, val);
                 },
                 '0', '.' => {},
@@ -99,6 +122,8 @@ pub const Sudoku = struct {
         return out;
     }
 
+    // ## Mask Helper
+
     inline fn tor(idx: usize) usize {
         return (idx / 9);
     }
@@ -108,6 +133,8 @@ pub const Sudoku = struct {
     inline fn tob(idx: usize) usize {
         return (idx / 27) * 3 + (idx % 9) / 3;
     }
+
+    // ## Cell Helper
 
     fn set_cell(self: *Sudoku, idx: usize, val: u8) void {
         const m = get_bitmask(val);
@@ -126,18 +153,16 @@ pub const Sudoku = struct {
         self.table[idx] = 0;
     }
 
-    fn get_possible_moves_mask(self: *const Sudoku, idx: usize) u16 {
+    // ## Bitmask
+
+    fn get_possible_moves(self: *const Sudoku, idx: usize) Bitmask {
         const used = self.row_masks[tor(idx)] |
             self.col_masks[toc(idx)] |
             self.box_masks[tob(idx)];
-        return FULL_MASK & ~used;
+        return Bitmask{ .mask = FULL_MASK & ~used };
     }
 
-    fn is_move_valid(self: *const Sudoku, idx: usize, val: u8) bool {
-        if (self.table[idx] == val) return true;
-        if (self.table[idx] != 0) return false;
-        return (self.get_possible_moves_mask(idx) & get_bitmask(val)) != 0;
-    }
+    // ## CHECKER
 
     pub fn is_solved(self: *const Sudoku) bool {
         for (self.table) |val| if (val == 0) return false;
@@ -149,6 +174,8 @@ pub const Sudoku = struct {
         return true;
     }
 
+    // ## Modifier
+
     fn inplace_random_fill(self: *Sudoku, rng: std.Random, cell_idx: usize) bool {
         if (cell_idx == CELL_COUNT) return true;
         std.debug.assert(self.table[cell_idx] == 0);
@@ -157,7 +184,7 @@ pub const Sudoku = struct {
         rng.shuffle(u8, &values);
 
         for (values) |val| {
-            if (self.is_move_valid(cell_idx, val)) {
+            if (self.get_possible_moves(cell_idx).has(val)) {
                 self.set_cell(cell_idx, val);
                 if (self.inplace_random_fill(rng, cell_idx + 1)) return true;
                 self.clear_cell(cell_idx);
@@ -176,7 +203,7 @@ pub const Sudoku = struct {
             self.clear_cell(idx);
             // Heuristic: only keep the cell empty if it still has a unique move
             // in its immediate context.
-            if (@popCount(self.get_possible_moves_mask(idx)) != 1) {
+            if (self.get_possible_moves(idx).len() > 1) { // ans is not unique -> reverse
                 self.set_cell(idx, original_val);
             }
         }
@@ -185,31 +212,25 @@ pub const Sudoku = struct {
     pub fn inplace_solve(self: *Sudoku) bool {
         var min_sz: usize = 10;
         var min_idx: usize = 81;
-        var min_mask: u16 = 0b00;
+        var min_mask: ?Bitmask = null;
         for (0..81) |idx| {
             if (self.table[idx] != 0) continue;
-            const mask = FULL_MASK & ~(0b0 |
-                self.row_masks[tor(idx)] |
-                self.col_masks[toc(idx)] |
-                self.box_masks[tob(idx)]);
-            const sz = @popCount(mask);
-            if (sz == 0) return false; // after previous update -> unsolveable
-            std.debug.assert(sz > 0);
-            if (sz < min_sz) {
-                min_sz = sz;
+            const mask = self.get_possible_moves(idx);
+            if (mask.len() == 0) return false; // after previous update -> unsolveable
+            if (mask.len() < min_sz) {
+                min_sz = mask.len();
                 min_idx = idx;
                 min_mask = mask;
             }
         }
-        if (min_sz == 10) return true; // every thing is filled
-        while (min_mask > 0) {
-            const val = @ctz(min_mask) + 1;
+
+        const mask = min_mask orelse return true;
+        var it = mask.iter();
+        while (it.next()) |_val| {
+            const val = _val + 1;
             std.debug.assert(1 <= val and val <= 9);
-            min_mask &= min_mask - 1;
             self.set_cell(min_idx, val);
-            if (self.inplace_solve()) {
-                return true;
-            }
+            if (self.inplace_solve()) return true;
             self.clear_cell(min_idx);
         }
         return false;
@@ -222,11 +243,11 @@ pub fn solve(input: []const u8) SudokuError![CELL_COUNT]u8 {
     return self.to_string();
 }
 
-pub fn generate_solved_puzzle_top(rng: std.Random) struct { solved: [CELL_COUNT]u8, puzzle: [CELL_COUNT]u8 } {
-    const gen = Sudoku.generate_solved_puzzle(rng);
+pub fn generate_puzzle(rng: std.Random) struct { expect: [CELL_COUNT]u8, input: [CELL_COUNT]u8 } {
+    const gen = Sudoku.generate_puzzle(rng);
     return .{
-        .solved = gen.solved.to_string(),
-        .puzzle = gen.puzzle.to_string(),
+        .expect = gen.expect.to_string(),
+        .input = gen.input.to_string(),
     };
 }
 
@@ -236,32 +257,32 @@ pub export fn abi_solve(input: [*]const u8, output: [*]u8) i32 {
     return 0;
 }
 
-pub export fn abi_generate_solved_puzzle(seed: u64, solved: [*]u8, puzzle: [*]u8) i32 {
+pub export fn abi_generate_puzzle(seed: u64, solved: [*]u8, puzzle: [*]u8) i32 {
     var prng = std.Random.DefaultPrng.init(seed);
     const rng = prng.random();
-    const out = generate_solved_puzzle_top(rng);
-    @memcpy(solved[0..CELL_COUNT], &out.solved);
-    @memcpy(puzzle[0..CELL_COUNT], &out.puzzle);
+    const out = generate_puzzle(rng);
+    @memcpy(solved[0..CELL_COUNT], &out.expect);
+    @memcpy(puzzle[0..CELL_COUNT], &out.input);
     return 0;
 }
 
 test "generated puzzle should be solvable" {
     var prng = std.Random.DefaultPrng.init(0xdeadbeef);
     const rng = prng.random();
-    const gen = Sudoku.generate_solved_puzzle(rng);
-    var puzzle = gen.puzzle;
+    const gen = Sudoku.generate_puzzle(rng);
+    var puzzle = gen.input;
     const ok = puzzle.inplace_solve();
     try std.testing.expect(ok);
     try std.testing.expect(puzzle.is_solved());
-    try std.testing.expectEqualSlices(u8, &gen.solved.table, &puzzle.table);
+    try std.testing.expectEqualSlices(u8, &gen.expect.table, &puzzle.table);
 }
 
 test "generated puzzle should be solvable 2" {
     var prng = std.Random.DefaultPrng.init(0xdeadbeef);
     const rng = prng.random();
-    const gen = generate_solved_puzzle_top(rng);
-    const out = try solve(&gen.puzzle);
-    try std.testing.expectEqualSlices(u8, &gen.solved, &out);
+    const gen = generate_puzzle(rng);
+    const out = try solve(&gen.input);
+    try std.testing.expectEqualSlices(u8, &gen.expect, &out);
 }
 
 test "sudoku solver should solve known puzzles" {
