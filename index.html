@@ -11,7 +11,7 @@
   <div id="app"></div>
 
   <script type="module">
-    import * as Sudoku from "./sudoku_zig.mjs";
+    import * as Sudoku from "./sudoku_zig.js";
     await Sudoku.init()
     Sudoku.mount("#app")
     console.log(Sudoku.solve("500000003020040000009005800070614000000000000100702060008000500040060020000003009"))
