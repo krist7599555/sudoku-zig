@@ -12,7 +12,7 @@ pub const SudokuError = error{
 
 /// Returns a bitmask for a Sudoku value (1-9).
 /// Value 0 returns 0.
-pub inline fn getBitmask(val: u8) u16 {
+pub inline fn get_bitmask(val: u8) u16 {
     std.debug.assert(val <= 9);
     return if (val == 0) 0 else @as(u16, 1) << @intCast(val - 1);
 }
@@ -32,21 +32,21 @@ pub const Sudoku = struct {
         };
     }
 
-    pub fn generateSolved(rng: std.Random) Sudoku {
+    pub fn generate_solved(rng: std.Random) Sudoku {
         var self = Sudoku.init();
-        const success = self.fillRandomly(rng, 0);
+        const success = self.fill_randomly(rng, 0);
         std.debug.assert(success);
         return self;
     }
 
-    pub fn generateSolvedPuzzle(rng: std.Random) struct { solved: Sudoku, puzzle: Sudoku } {
-        const solved = generateSolved(rng);
+    pub fn generate_solved_puzzle(rng: std.Random) struct { solved: Sudoku, puzzle: Sudoku } {
+        const solved = generate_solved(rng);
         var puzzle = solved;
-        puzzle.pruneCells(rng);
+        puzzle.prune_cells(rng);
         return .{ .solved = solved, .puzzle = puzzle };
     }
 
-    fn fillRandomly(self: *Sudoku, rng: std.Random, cell_idx: usize) bool {
+    fn fill_randomly(self: *Sudoku, rng: std.Random, cell_idx: usize) bool {
         if (cell_idx == CELL_COUNT) return true;
         std.debug.assert(self.table[cell_idx] == 0);
 
@@ -54,40 +54,40 @@ pub const Sudoku = struct {
         rng.shuffle(u8, &values);
 
         for (values) |val| {
-            if (self.isMoveValid(cell_idx, val)) {
-                self.setCell(cell_idx, val);
-                if (self.fillRandomly(rng, cell_idx + 1)) return true;
-                self.clearCell(cell_idx);
+            if (self.is_move_valid(cell_idx, val)) {
+                self.set_cell(cell_idx, val);
+                if (self.fill_randomly(rng, cell_idx + 1)) return true;
+                self.clear_cell(cell_idx);
             }
         }
         return false;
     }
 
-    fn pruneCells(self: *Sudoku, rng: std.Random) void {
+    fn prune_cells(self: *Sudoku, rng: std.Random) void {
         var indices: [CELL_COUNT]u8 = undefined;
         for (0..CELL_COUNT) |i| indices[i] = @intCast(i);
         rng.shuffle(u8, &indices);
 
         for (indices) |idx| {
             const original_val = self.table[idx];
-            self.clearCell(idx);
+            self.clear_cell(idx);
             // Heuristic: only keep the cell empty if it still has a unique move
             // in its immediate context.
-            if (@popCount(self.getPossibleMovesMask(idx)) != 1) {
-                self.setCell(idx, original_val);
+            if (@popCount(self.get_possible_moves_mask(idx)) != 1) {
+                self.set_cell(idx, original_val);
             }
         }
     }
 
-    pub fn fromString(str: []const u8) SudokuError!Sudoku {
+    pub fn from_string(str: []const u8) SudokuError!Sudoku {
         if (str.len != CELL_COUNT) return SudokuError.InvalidLength;
         var self = Sudoku.init();
         for (str, 0..) |c, i| {
             switch (c) {
                 '1'...'9' => {
                     const val = c - '0';
-                    if (!self.isMoveValid(i, val)) return SudokuError.DuplicatedElement;
-                    self.setCell(i, val);
+                    if (!self.is_move_valid(i, val)) return SudokuError.DuplicatedElement;
+                    self.set_cell(i, val);
                 },
                 '0', '.' => {},
                 else => return SudokuError.InvalidChar,
@@ -96,7 +96,7 @@ pub const Sudoku = struct {
         return self;
     }
 
-    pub fn toString(self: *const Sudoku) [CELL_COUNT]u8 {
+    pub fn to_string(self: *const Sudoku) [CELL_COUNT]u8 {
         var str: [CELL_COUNT]u8 = undefined;
         for (self.table, 0..) |v, i| {
             str[i] = if (v == 0) '.' else v + '0';
@@ -104,7 +104,7 @@ pub const Sudoku = struct {
         return str;
     }
 
-    pub fn prettyString(self: *const Sudoku) [609]u8 {
+    pub fn pretty_string(self: *const Sudoku) [609]u8 {
         const template =
             \\┌───────┬───────┬───────┐
             \\│ . . . │ . . . │ . . . │
@@ -132,6 +132,7 @@ pub const Sudoku = struct {
         }
         return out;
     }
+
     inline fn tor(idx: usize) usize {
         return (idx / 9);
     }
@@ -142,37 +143,37 @@ pub const Sudoku = struct {
         return (idx / 27) * 3 + (idx % 9) / 3;
     }
 
-    fn setCell(self: *Sudoku, idx: usize, val: u8) void {
-        const m = getBitmask(val);
+    fn set_cell(self: *Sudoku, idx: usize, val: u8) void {
+        const m = get_bitmask(val);
         self.table[idx] = val;
         self.row_masks[tor(idx)] |= m;
         self.col_masks[toc(idx)] |= m;
         self.box_masks[tob(idx)] |= m;
     }
-    fn clearCell(self: *Sudoku, idx: usize) void {
+    fn clear_cell(self: *Sudoku, idx: usize) void {
         const val = self.table[idx];
         if (val == 0) return;
-        const m = getBitmask(val);
+        const m = get_bitmask(val);
         self.row_masks[tor(idx)] &= ~m;
         self.col_masks[toc(idx)] &= ~m;
         self.box_masks[tob(idx)] &= ~m;
         self.table[idx] = 0;
     }
 
-    fn getPossibleMovesMask(self: *const Sudoku, idx: usize) u16 {
+    fn get_possible_moves_mask(self: *const Sudoku, idx: usize) u16 {
         const used = self.row_masks[tor(idx)] |
             self.col_masks[toc(idx)] |
             self.box_masks[tob(idx)];
         return FULL_MASK & ~used;
     }
 
-    fn isMoveValid(self: *const Sudoku, idx: usize, val: u8) bool {
+    fn is_move_valid(self: *const Sudoku, idx: usize, val: u8) bool {
         if (self.table[idx] == val) return true;
         if (self.table[idx] != 0) return false;
-        return (self.getPossibleMovesMask(idx) & getBitmask(val)) != 0;
+        return (self.get_possible_moves_mask(idx) & get_bitmask(val)) != 0;
     }
 
-    pub fn isSolved(self: *const Sudoku) bool {
+    pub fn is_solved(self: *const Sudoku) bool {
         for (self.table) |val| if (val == 0) return false;
         for (0..GRID_SIZE) |i| {
             if (self.row_masks[i] != FULL_MASK or
@@ -183,9 +184,9 @@ pub const Sudoku = struct {
     }
 
     pub fn solve(self: *Sudoku) bool {
-        var minSz: usize = 10;
-        var minIdx: usize = 81;
-        var minMask: u16 = 0b00;
+        var min_sz: usize = 10;
+        var min_idx: usize = 81;
+        var min_mask: u16 = 0b00;
         for (0..81) |idx| {
             if (self.table[idx] != 0) continue;
             const mask = FULL_MASK & ~(0b0 |
@@ -195,38 +196,38 @@ pub const Sudoku = struct {
             const sz = @popCount(mask);
             if (sz == 0) return false; // after previous update -> unsolveable
             std.debug.assert(sz > 0);
-            if (sz < minSz) {
-                minSz = sz;
-                minIdx = idx;
-                minMask = mask;
+            if (sz < min_sz) {
+                min_sz = sz;
+                min_idx = idx;
+                min_mask = mask;
             }
         }
-        if (minSz == 10) return true; // every thing is filled
-        while (minMask > 0) {
-            const val = @ctz(minMask) + 1;
+        if (min_sz == 10) return true; // every thing is filled
+        while (min_mask > 0) {
+            const val = @ctz(min_mask) + 1;
             std.debug.assert(1 <= val and val <= 9);
-            minMask &= minMask - 1;
-            self.setCell(minIdx, val);
+            min_mask &= min_mask - 1;
+            self.set_cell(min_idx, val);
             if (self.solve()) {
                 return true;
             }
-            self.clearCell(minIdx);
+            self.clear_cell(min_idx);
         }
         return false;
     }
 };
 
 pub fn solve(input: []const u8) SudokuError![CELL_COUNT]u8 {
-    var self = try Sudoku.fromString(input);
+    var self = try Sudoku.from_string(input);
     if (!self.solve()) return SudokuError.DuplicatedElement;
-    return self.toString();
+    return self.to_string();
 }
 
-pub fn generate_solved_puzzle(rng: std.Random) struct { solved: [CELL_COUNT]u8, puzzle: [CELL_COUNT]u8 } {
-    const gen = Sudoku.generateSolvedPuzzle(rng);
+pub fn generate_solved_puzzle_top(rng: std.Random) struct { solved: [CELL_COUNT]u8, puzzle: [CELL_COUNT]u8 } {
+    const gen = Sudoku.generate_solved_puzzle(rng);
     return .{
-        .solved = gen.solved.toString(),
-        .puzzle = gen.puzzle.toString(),
+        .solved = gen.solved.to_string(),
+        .puzzle = gen.puzzle.to_string(),
     };
 }
 
@@ -239,7 +240,7 @@ pub export fn abi_solve(input: [*]const u8, output: [*]u8) i32 {
 pub export fn abi_generate_solved_puzzle(seed: u64, solved: [*]u8, puzzle: [*]u8) i32 {
     var prng = std.Random.DefaultPrng.init(seed);
     const rng = prng.random();
-    const out = generate_solved_puzzle(rng);
+    const out = generate_solved_puzzle_top(rng);
     @memcpy(solved[0..CELL_COUNT], &out.solved);
     @memcpy(puzzle[0..CELL_COUNT], &out.puzzle);
     return 0;
@@ -248,18 +249,18 @@ pub export fn abi_generate_solved_puzzle(seed: u64, solved: [*]u8, puzzle: [*]u8
 test "generated puzzle should be solvable" {
     var prng = std.Random.DefaultPrng.init(0xdeadbeef);
     const rng = prng.random();
-    const gen = Sudoku.generateSolvedPuzzle(rng);
+    const gen = Sudoku.generate_solved_puzzle(rng);
     var puzzle = gen.puzzle;
     const ok = puzzle.solve();
     try std.testing.expect(ok);
-    try std.testing.expect(puzzle.isSolved());
+    try std.testing.expect(puzzle.is_solved());
     try std.testing.expectEqualSlices(u8, &gen.solved.table, &puzzle.table);
 }
 
 test "generated puzzle should be solvable 2" {
     var prng = std.Random.DefaultPrng.init(0xdeadbeef);
     const rng = prng.random();
-    const gen = generate_solved_puzzle(rng);
+    const gen = generate_solved_puzzle_top(rng);
     const out = try solve(&gen.puzzle);
     try std.testing.expectEqualSlices(u8, &gen.solved, &out);
 }
@@ -280,16 +281,16 @@ test "sudoku solver should solve known puzzles" {
         "417369825632158947958724316825437169791586432346912758289643571573291684164875293",
     };
     for (cases) |case| {
-        var self = try Sudoku.fromString(case);
+        var self = try Sudoku.from_string(case);
         try std.testing.expect(self.solve());
-        try std.testing.expect(self.isSolved());
+        try std.testing.expect(self.is_solved());
     }
 }
 
 test "sudoku solve basic string" {
     const output = try solve("7...2654..98.75.2...5.4.97198.6.275.....87.1934.5....26592..4...34.6..85..235.1..");
-    const self = try Sudoku.fromString(&output);
-    try std.testing.expect(self.isSolved());
+    const self = try Sudoku.from_string(&output);
+    try std.testing.expect(self.is_solved());
 }
 
 test "sudoku solve invalid input.len" {
