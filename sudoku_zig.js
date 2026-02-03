@@ -52,7 +52,7 @@ export function mount(selector) {
         return `
           <div
             data-idx="${i}"
-            class="size-10 p-2 text-center border border-slate-200 shadow-md
+            class="cursor-pointer size-10 p-2 text-center border border-slate-200 shadow-md
               ${isDarkBox ? "bg-slate-300" : "bg-slate-50"}">
             ${c === "." ? "" : c}
           </div>
