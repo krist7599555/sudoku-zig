@@ -34,7 +34,7 @@ fn test_basic() !void {
     for (sodoks, 0..) |_, i| {
         var puzzle = sodoks[i];
         var solved = puzzle; // clone
-        const solvable = solved.solve();
+        const solvable = solved.inplace_solve();
         std.debug.assert(solvable);
         std.debug.print("\nQUESTION: {}\n", .{i});
         std.debug.print("inp: [{s}]\n{s}\n", .{ puzzle.to_string(), puzzle.pretty_string() });

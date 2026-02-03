@@ -23,7 +23,7 @@ pub const Sudoku = struct {
     col_masks: [GRID_SIZE]u16,
     box_masks: [GRID_SIZE]u16,
 
-    pub fn init() Sudoku {
+    pub fn create() Sudoku {
         return .{
             .table = .{0} ** CELL_COUNT,
             .row_masks = .{0} ** GRID_SIZE,
@@ -33,55 +33,21 @@ pub const Sudoku = struct {
     }
 
     pub fn generate_solved(rng: std.Random) Sudoku {
-        var self = Sudoku.init();
-        const success = self.fill_randomly(rng, 0);
-        std.debug.assert(success);
+        var self = Sudoku.create();
+        _ = self.inplace_random_fill(rng, 0);
         return self;
     }
 
     pub fn generate_solved_puzzle(rng: std.Random) struct { solved: Sudoku, puzzle: Sudoku } {
         const solved = generate_solved(rng);
         var puzzle = solved;
-        puzzle.prune_cells(rng);
+        _ = puzzle.inplace_prune_cells(rng);
         return .{ .solved = solved, .puzzle = puzzle };
-    }
-
-    fn fill_randomly(self: *Sudoku, rng: std.Random, cell_idx: usize) bool {
-        if (cell_idx == CELL_COUNT) return true;
-        std.debug.assert(self.table[cell_idx] == 0);
-
-        var values = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8, 9 };
-        rng.shuffle(u8, &values);
-
-        for (values) |val| {
-            if (self.is_move_valid(cell_idx, val)) {
-                self.set_cell(cell_idx, val);
-                if (self.fill_randomly(rng, cell_idx + 1)) return true;
-                self.clear_cell(cell_idx);
-            }
-        }
-        return false;
-    }
-
-    fn prune_cells(self: *Sudoku, rng: std.Random) void {
-        var indices: [CELL_COUNT]u8 = undefined;
-        for (0..CELL_COUNT) |i| indices[i] = @intCast(i);
-        rng.shuffle(u8, &indices);
-
-        for (indices) |idx| {
-            const original_val = self.table[idx];
-            self.clear_cell(idx);
-            // Heuristic: only keep the cell empty if it still has a unique move
-            // in its immediate context.
-            if (@popCount(self.get_possible_moves_mask(idx)) != 1) {
-                self.set_cell(idx, original_val);
-            }
-        }
     }
 
     pub fn from_string(str: []const u8) SudokuError!Sudoku {
         if (str.len != CELL_COUNT) return SudokuError.InvalidLength;
-        var self = Sudoku.init();
+        var self = Sudoku.create();
         for (str, 0..) |c, i| {
             switch (c) {
                 '1'...'9' => {
@@ -183,7 +149,40 @@ pub const Sudoku = struct {
         return true;
     }
 
-    pub fn solve(self: *Sudoku) bool {
+    fn inplace_random_fill(self: *Sudoku, rng: std.Random, cell_idx: usize) bool {
+        if (cell_idx == CELL_COUNT) return true;
+        std.debug.assert(self.table[cell_idx] == 0);
+
+        var values = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8, 9 };
+        rng.shuffle(u8, &values);
+
+        for (values) |val| {
+            if (self.is_move_valid(cell_idx, val)) {
+                self.set_cell(cell_idx, val);
+                if (self.inplace_random_fill(rng, cell_idx + 1)) return true;
+                self.clear_cell(cell_idx);
+            }
+        }
+        return false;
+    }
+
+    fn inplace_prune_cells(self: *Sudoku, rng: std.Random) void {
+        var indices: [CELL_COUNT]u8 = undefined;
+        for (0..CELL_COUNT) |i| indices[i] = @intCast(i);
+        rng.shuffle(u8, &indices);
+
+        for (indices) |idx| {
+            const original_val = self.table[idx];
+            self.clear_cell(idx);
+            // Heuristic: only keep the cell empty if it still has a unique move
+            // in its immediate context.
+            if (@popCount(self.get_possible_moves_mask(idx)) != 1) {
+                self.set_cell(idx, original_val);
+            }
+        }
+    }
+
+    pub fn inplace_solve(self: *Sudoku) bool {
         var min_sz: usize = 10;
         var min_idx: usize = 81;
         var min_mask: u16 = 0b00;
@@ -208,7 +207,7 @@ pub const Sudoku = struct {
             std.debug.assert(1 <= val and val <= 9);
             min_mask &= min_mask - 1;
             self.set_cell(min_idx, val);
-            if (self.solve()) {
+            if (self.inplace_solve()) {
                 return true;
             }
             self.clear_cell(min_idx);
@@ -219,7 +218,7 @@ pub const Sudoku = struct {
 
 pub fn solve(input: []const u8) SudokuError![CELL_COUNT]u8 {
     var self = try Sudoku.from_string(input);
-    if (!self.solve()) return SudokuError.DuplicatedElement;
+    if (!self.inplace_solve()) return SudokuError.DuplicatedElement;
     return self.to_string();
 }
 
@@ -251,7 +250,7 @@ test "generated puzzle should be solvable" {
     const rng = prng.random();
     const gen = Sudoku.generate_solved_puzzle(rng);
     var puzzle = gen.puzzle;
-    const ok = puzzle.solve();
+    const ok = puzzle.inplace_solve();
     try std.testing.expect(ok);
     try std.testing.expect(puzzle.is_solved());
     try std.testing.expectEqualSlices(u8, &gen.solved.table, &puzzle.table);
@@ -282,7 +281,7 @@ test "sudoku solver should solve known puzzles" {
     };
     for (cases) |case| {
         var self = try Sudoku.from_string(case);
-        try std.testing.expect(self.solve());
+        try std.testing.expect(self.inplace_solve());
         try std.testing.expect(self.is_solved());
     }
 }
