@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+  <title>krist7599555 Sudoku-Zig</title>
+</head>
+<body>
+
+  <div id="app" class="font-bold text-slate-700 grid grid-cols-9 grid-rows-9 w-fit gap-0.5 mx-auto mt-12">
+  </div>
+
+  <div class="flex mx-auto justify-center gap-2 mt-6">
+    <button onclick='random()' type="button" class="cursor-pointer bg-slate-600 text-white rounded-md px-4 py-2 w-30 shadow">Random</button>
+    <button onclick='solve()' type="button" class="cursor-pointer bg-slate-600 text-white rounded-md px-4 py-2 w-30 shadow">Solve</button>
+  </div>
+
+  <style type="text/tailwindcss">
+    #app > [data-box] {
+      @apply border-slate-200 shadow-md bg-slate-50;
+    }
+    #app > [data-box='1'],
+    #app > [data-box='3'],
+    #app > [data-box='5'],
+    #app > [data-box='7'] {
+      @apply bg-slate-300;
+    }
+  </style>
+
+  <script defer async>
+    const app = document.getElementById("app")
+    function render() {
+      app.innerHTML = app.dataset.sudoku.split('').map((c, i) => {
+        const box = (Math.floor(i / 27) * 3 + Math.floor((i % 9) / 3));
+        const val = c.replace('.', '');
+        return`
+          <div
+            data-box='${box}'
+            class="size-10 p-2 text-center border"
+          >${val}</div>`
+      }
+      ).join('')
+    }
+    function setTable(str) {
+      app.dataset.sudoku = str;
+      render();
+    }
+    function random() {
+      app.dataset.sudoku = SudokuZig.sudoku_generate_solved_puzzle().puzzle;
+      render();
+    }
+    function solve() {
+      app.dataset.sudoku = SudokuZig.sudoku_solve(app.dataset.sudoku)
+      render(); 
+    }
+  </script>
+
+  <script type="module" async defer>
+    window.SudokuZig = await (async () => {
+      const res = await fetch("/zig-out/bin/sudoku_zig.wasm");
+      const bytes = await res.arrayBuffer();
+      const { instance, module } = await WebAssembly.instantiate(bytes, {});
+
+      const wasm = instance.exports;
+      const mem = new Uint8Array(wasm.memory.buffer);
+      const encoder = new TextEncoder();
+      let _molloc_end = 0;
+      const molloc = (size) => {
+        const res = _molloc_end;
+        _molloc_end += size;
+        return {
+          addr: res,
+          len: size,
+          as_str() {
+            return new TextDecoder().decode(mem.slice(res, this.addr + this.len)) 
+          },
+          write(s) {
+            mem.set(encoder.encode(s.slice(0, this.len)), this.addr);
+            return this;
+          },
+        }
+      }
+      const free_all_memory = () => _molloc_end = 0;
+      const exitcode = (status) => {
+        if (status != 0) {
+          throw new Error("wasm return error exit status = " + status)
+        }
+      }
+      
+      function sudoku_solve(str) {
+        if (str.length !== 81) throw new Error("input must be 81 bytes");
+        const inp = molloc(81).write(str)
+        const out = molloc(81)
+        exitcode(wasm.abi_solve(inp.addr, out.addr));
+        const res = out.as_str();
+        free_all_memory();
+        return res;
+      }
+
+      function sudoku_generate_solved_puzzle(seed = Date.now()) {
+        const out_solved = molloc(81);
+        const out_puzzle = molloc(81);
+        exitcode(wasm.abi_generate_solved_puzzle(BigInt(seed), out_solved.addr, out_puzzle.addr));
+        const res = {
+          solved: out_solved.as_str(),
+          puzzle: out_puzzle.as_str()
+        }
+        free_all_memory();
+        return res;
+      }
+
+      return {
+        sudoku_solve,
+        sudoku_generate_solved_puzzle
+      }
+    })();
+
+    function main() {
+      random();
+    }
+
+    main();
+
+  </script>
+  
+</body>
+</html>
